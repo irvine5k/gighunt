@@ -1,0 +1,36 @@
+{
+  "name": "gighunt",
+  "version": "0.1.0",
+  "private": false,
+  "type": "module",
+  "packageManager": "pnpm@11.19.0",
+  "engines": { "node": ">=24" },
+  "workspaces": ["apps/*", "packages/*"],
+  "bin": { "gighunt": "dist/main.js" },
+  "files": ["dist", "apps/web/dist", "README.md"],
+  "scripts": {
+    "build": "pnpm --filter @gighunt/web build && pnpm -r --filter './packages/**' build && pnpm --filter @gighunt/daemon build && pnpm --filter @gighunt/mcp build && pnpm --filter @gighunt/cli build && tsup apps/cli/src/main.ts --format esm --out-dir dist --clean",
+    "typecheck": "pnpm -r typecheck",
+    "test": "vitest run",
+    "dev": "pnpm --filter @gighunt/daemon dev",
+    "dev:web": "pnpm --filter @gighunt/web dev"
+  },
+  "devDependencies": {
+    "@types/node": "^24.10.0",
+    "typescript": "^5.9.3",
+    "vitest": "^4.0.18",
+    "tsup": "^8.5.1"
+  },
+  "dependencies": {
+    "@fastify/cookie": "^11.0.2",
+    "@fastify/static": "^8.3.0",
+    "@modelcontextprotocol/sdk": "^1.27.1",
+    "@sinclair/typebox": "^0.34.48",
+    "better-sqlite3": "^12.4.1",
+    "commander": "^14.0.2",
+    "croner": "^10.0.0",
+    "fastify": "^5.7.4",
+    "ipaddr.js": "^2.5.0",
+    "zod": "^4.3.6"
+  }
+}

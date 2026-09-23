@@ -1,0 +1,11 @@
+{
+  "name": "@gighunt/cli",
+  "version": "0.1.0",
+  "type": "module",
+  "bin": { "gighunt": "dist/main.js" },
+  "scripts": { "dev": "tsx src/main.ts", "build": "tsup src/main.ts --format esm --dts --clean", "typecheck": "tsc -p tsconfig.json --noEmit" },
+  "dependencies": {
+    "@gighunt/contracts": "workspace:*", "@gighunt/daemon": "workspace:*", "@gighunt/mcp": "workspace:*", "commander": "^14.0.2"
+  },
+  "devDependencies": { "tsx": "^4.21.0", "tsup": "^8.5.1" }
+}

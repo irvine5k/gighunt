@@ -1,0 +1,22 @@
+{
+  "name": "@gighunt/daemon",
+  "version": "0.1.0",
+  "type": "module",
+  "exports": { "types": "./src/server.ts", "import": "./dist/server.js" },
+  "scripts": {
+    "dev": "tsx src/main.ts",
+    "build": "tsup src/main.ts src/server.ts --format esm --dts --clean",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@fastify/cookie": "^11.0.2",
+    "@fastify/static": "^8.3.0",
+    "@gighunt/application": "workspace:*",
+    "@gighunt/contracts": "workspace:*",
+    "@gighunt/db": "workspace:*",
+    "@gighunt/providers": "workspace:*",
+    "croner": "^10.0.0",
+    "fastify": "^5.7.4"
+  },
+  "devDependencies": { "tsx": "^4.21.0", "tsup": "^8.5.1" }
+}
