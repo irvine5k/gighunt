@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { GigDatabase } from '@gighunt/db';
 import { createServer, runScheduledTick } from './server.js';
 import { secretWriteCommand } from './secrets.js';
@@ -38,6 +38,43 @@ describe('daemon security and workflow', () => {
     expect((await app.inject({ method: 'POST', url: '/api/v1/outreach/send-id/reconcile', headers: { authorization: 'Bearer mcp-secret' }, payload: { outcome: 'cancelled' } })).statusCode).toBe(403);
     expect((await app.inject({ method: 'PUT', url: '/api/v1/contacts/contact-id/confirm-affiliation', headers: { authorization: 'Bearer mcp-secret' }, payload: { confirmed: true } })).statusCode).toBe(403);
     await app.close(); db.close();
+  });
+
+  it('lets only a human save provider credentials and never returns their values', async () => {
+    const db = new GigDatabase(); const stored = new Map<string, string>();
+    const secretStore = { load: (name: string) => stored.get(name), save: (name: string, value: string) => { stored.set(name, value); return { storage: 'keychain' as const }; } };
+    const { app } = await createServer({ database: db, apiToken: 'secret', mcpToken: 'mcp-secret', fakeProviders: true, secretStore });
+    const path = '/api/v1/provider-credentials/BRAVE_API_KEY';
+    expect((await app.inject({ method: 'GET', url: '/api/v1/provider-credentials' })).statusCode).toBe(401);
+    expect((await app.inject({ method: 'GET', url: '/api/v1/provider-credentials', headers: { authorization: 'Bearer mcp-secret' } })).statusCode).toBe(403);
+    expect((await app.inject({ method: 'PUT', url: path, headers: { authorization: 'Bearer mcp-secret' }, payload: { value: 'test-brave-key' } })).statusCode).toBe(403);
+    expect((await app.inject({ method: 'PUT', url: '/api/v1/provider-credentials/API_TOKEN', headers: { authorization: 'Bearer secret' }, payload: { value: 'bad' } })).statusCode).toBe(400);
+    expect((await app.inject({ method: 'PUT', url: path, headers: { authorization: 'Bearer secret' }, payload: { value: 'bad\nvalue' } })).statusCode).toBe(400);
+    const saved = await app.inject({ method: 'PUT', url: path, headers: { authorization: 'Bearer secret' }, payload: { value: 'test-brave-key' } });
+    expect(saved.statusCode).toBe(200); expect(saved.body).not.toContain('test-brave-key');
+    const statuses = await app.inject({ method: 'GET', url: '/api/v1/provider-credentials', headers: { authorization: 'Bearer secret' } });
+    expect(statuses.statusCode).toBe(200); expect(statuses.body).not.toContain('test-brave-key');
+    expect(statuses.json()).toContainEqual({ name: 'BRAVE_API_KEY', configured: true, managedExternally: false });
+    await app.close(); db.close();
+  });
+
+  it('uses a newly saved Brave key for queued searches without a daemon restart', async () => {
+    const db = new GigDatabase(); const stored = new Map<string, string>();
+    const secretStore = { load: (name: string) => stored.get(name), save: (name: string, value: string) => { stored.set(name, value); return { storage: 'keychain' as const }; } };
+    const fetched = vi.fn(async (_input: string | URL, _init?: RequestInit) => new Response(JSON.stringify({ web: { results: [] } }), { status: 200 }));
+    vi.stubGlobal('fetch', fetched);
+    const { app } = await createServer({ database: db, apiToken: 'secret', secretStore });
+    try {
+      db.saveProfile({ id: 'default', name: 'Ada', email: 'ada@example.com', summary: 'Engineer', skills: [], targetRoles: ['Engineer'], locations: [], remote: true, confirmed: true });
+      await app.ready();
+      const headers = { authorization: 'Bearer secret' };
+      expect((await app.inject({ method: 'PUT', url: '/api/v1/provider-credentials/BRAVE_API_KEY', headers, payload: { value: 'new-brave-key' } })).statusCode).toBe(200);
+      const response = await app.inject({ method: 'POST', url: '/api/v1/runs', headers, payload: { query: 'TypeScript Engineer' } });
+      expect(response.statusCode).toBe(200);
+      const runId = response.json().id as string;
+      await vi.waitFor(() => expect(db.getRun(runId)?.status).toBe('completed'), { timeout: 3000 });
+      expect(fetched.mock.calls[0]?.[1]?.headers).toMatchObject({ 'X-Subscription-Token': 'new-brave-key' });
+    } finally { await app.close(); db.close(); vi.unstubAllGlobals(); }
   });
 
   it('lets MCP read researched contacts and their evidence without granting approval', async () => {

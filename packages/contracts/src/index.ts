@@ -32,6 +32,22 @@ export const Settings = Type.Object({
 export type Settings = Static<typeof Settings>;
 export const SettingsInput = Type.Partial(Settings, { additionalProperties: false });
 
+export const ProviderCredentialName = Type.Union([
+  Type.Literal('OPENAI_API_KEY'), Type.Literal('BRAVE_API_KEY'), Type.Literal('HUNTER_API_KEY'),
+  Type.Literal('GMAIL_CLIENT_ID'), Type.Literal('GMAIL_CLIENT_SECRET'), Type.Literal('GMAIL_REFRESH_TOKEN'),
+]);
+export type ProviderCredentialName = Static<typeof ProviderCredentialName>;
+export const ProviderCredentialParams = Type.Object({ name: ProviderCredentialName }, { additionalProperties: false });
+export const ProviderCredentialInput = Type.Object({
+  value: Type.String({ minLength: 1, maxLength: 10000, pattern: '^[^\\r\\n]+$' }),
+}, { additionalProperties: false });
+export const ProviderCredentialStatus = Type.Object({
+  name: ProviderCredentialName,
+  configured: Type.Boolean(),
+  managedExternally: Type.Boolean(),
+});
+export type ProviderCredentialStatus = Static<typeof ProviderCredentialStatus>;
+
 export const Run = Type.Object({
   id: Id,
   query: Type.String(),

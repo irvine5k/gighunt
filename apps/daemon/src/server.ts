@@ -8,12 +8,14 @@ import cookie from '@fastify/cookie';
 import staticPlugin from '@fastify/static';
 import { Cron } from 'croner';
 import { GigDatabase } from '@gighunt/db';
-import { GigHuntService, QueueWorker } from '@gighunt/application';
+import { GigHuntService, QueueWorker, type Providers } from '@gighunt/application';
 import { BraveSearchProvider, FakeProviders, GmailProvider, HunterContactProvider, OpenAiModelProvider, SafePageFetcher } from '@gighunt/providers';
-import { AffiliationConfirmationInput, ApprovalInput, BatchApprovalInput, BootstrapInput, ContactsQuery, DraftCreateInput, DraftUpdateInput, EmptyInput, EventsQuery, IdParams, JobsQuery, ProfileInput, ReconcileInput, RunInput, ScheduleInput, SettingsInput } from '@gighunt/contracts';
-import { hasSecret, loadSecret, saveSecret } from './secrets.js';
+import { AffiliationConfirmationInput, ApprovalInput, BatchApprovalInput, BootstrapInput, ContactsQuery, DraftCreateInput, DraftUpdateInput, EmptyInput, EventsQuery, IdParams, JobsQuery, ProfileInput, ProviderCredentialInput, ProviderCredentialParams, ReconcileInput, RunInput, ScheduleInput, SettingsInput, type ProviderCredentialName } from '@gighunt/contracts';
+import { loadSecret, saveSecret } from './secrets.js';
 
-export interface ServerOptions { database?: GigDatabase; apiToken?: string; mcpToken?: string; fakeProviders?: boolean; webRoot?: string }
+interface SecretStore { load(name: string): string | undefined; save(name: string, value: string): { storage: 'keychain' | 'file' } }
+export interface ServerOptions { database?: GigDatabase; apiToken?: string; mcpToken?: string; fakeProviders?: boolean; webRoot?: string; secretStore?: SecretStore }
+const credentialNames: ProviderCredentialName[] = ['OPENAI_API_KEY', 'BRAVE_API_KEY', 'HUNTER_API_KEY', 'GMAIL_CLIENT_ID', 'GMAIL_CLIENT_SECRET', 'GMAIL_REFRESH_TOKEN'];
 
 function configDir() { return process.env.GIGHUNT_CONFIG_DIR ?? join(homedir(), '.config', 'gighunt'); }
 export function tokenPath() { return join(configDir(), 'token'); }
@@ -38,16 +40,19 @@ export async function createServer(options: ServerOptions = {}) {
   const db = options.database ?? new GigDatabase(process.env.GIGHUNT_DB ?? join(configDir(), 'gighunt.db'));
   const token = options.apiToken ?? loadOrCreateToken();
   const mcpToken = options.mcpToken ?? (options.apiToken ? randomBytes(32).toString('base64url') : loadOrCreateMcpToken());
+  const secretStore = options.secretStore ?? { load: loadSecret, save: saveSecret };
   const fake = new FakeProviders(); const useFake = options.fakeProviders ?? process.env.GIGHUNT_FAKE_PROVIDERS === 'true';
-  const service = new GigHuntService(db, useFake ? { search: fake, pages: fake, model: fake, contacts: fake, mail: fake } : {
-    search: new BraveSearchProvider(loadSecret('BRAVE_API_KEY') ?? ''), pages: new SafePageFetcher(),
-    model: new OpenAiModelProvider(loadSecret('OPENAI_API_KEY') ?? '', process.env.OPENAI_MODEL ?? 'gpt-5-mini'),
-    contacts: new HunterContactProvider(loadSecret('HUNTER_API_KEY') ?? ''), mail: new GmailProvider({
-      accessToken: loadSecret('GMAIL_ACCESS_TOKEN'), clientId: loadSecret('GMAIL_CLIENT_ID'),
-      accessTokenExpiresAt: loadSecret('GMAIL_ACCESS_TOKEN_EXPIRES_AT'), clientSecret: loadSecret('GMAIL_CLIENT_SECRET'), refreshToken: loadSecret('GMAIL_REFRESH_TOKEN'),
-      persistAccessToken: (accessToken, expiresAt) => { saveSecret('GMAIL_ACCESS_TOKEN', accessToken); saveSecret('GMAIL_ACCESS_TOKEN_EXPIRES_AT', expiresAt); },
+  const realProviders = (resetGmailToken = false): Providers => ({
+    search: new BraveSearchProvider(secretStore.load('BRAVE_API_KEY') ?? ''), pages: new SafePageFetcher(),
+    model: new OpenAiModelProvider(secretStore.load('OPENAI_API_KEY') ?? '', process.env.OPENAI_MODEL ?? 'gpt-5-mini'),
+    contacts: new HunterContactProvider(secretStore.load('HUNTER_API_KEY') ?? ''), mail: new GmailProvider({
+      accessToken: resetGmailToken ? undefined : secretStore.load('GMAIL_ACCESS_TOKEN'), clientId: secretStore.load('GMAIL_CLIENT_ID'),
+      accessTokenExpiresAt: resetGmailToken ? undefined : secretStore.load('GMAIL_ACCESS_TOKEN_EXPIRES_AT'), clientSecret: secretStore.load('GMAIL_CLIENT_SECRET'), refreshToken: secretStore.load('GMAIL_REFRESH_TOKEN'),
+      persistAccessToken: (accessToken, expiresAt) => { secretStore.save('GMAIL_ACCESS_TOKEN', accessToken); secretStore.save('GMAIL_ACCESS_TOKEN_EXPIRES_AT', expiresAt); },
     }),
   });
+  const providers: Providers = useFake ? { search: fake, pages: fake, model: fake, contacts: fake, mail: fake } : realProviders();
+  const service = new GigHuntService(db, providers);
   const worker = new QueueWorker(db, service); const sessions = new Map<string, string>();
   let bootstrapNonce = randomBytes(24).toString('base64url');
   const scope = (request: FastifyRequest): 'human' | 'mcp' | null => {
@@ -108,6 +113,19 @@ export async function createServer(options: ServerOptions = {}) {
   });
   app.get('/api/v1/settings', async () => db.getSettings());
   app.patch('/api/v1/settings', { schema: { body: SettingsInput } }, async (request) => db.updateSettings(request.body as any));
+  app.get('/api/v1/provider-credentials', async (request, reply) => {
+    const denied = humanOnly(request, reply); if (denied) return denied;
+    return credentialNames.map((name) => ({ name, configured: Boolean(secretStore.load(name)), managedExternally: Boolean(process.env[name]) }));
+  });
+  app.put('/api/v1/provider-credentials/:name', { schema: { params: ProviderCredentialParams, body: ProviderCredentialInput } }, async (request, reply) => {
+    const denied = humanOnly(request, reply); if (denied) return denied;
+    const { name } = request.params as { name: ProviderCredentialName };
+    if (process.env[name]) return reply.code(409).send({ error: { code: 'ENV_MANAGED', message: `${name} is set in the daemon environment`, retryable: false } });
+    const { value } = request.body as { value: string };
+    const stored = secretStore.save(name, value);
+    if (!useFake) Object.assign(providers, realProviders(name.startsWith('GMAIL_')));
+    return { name, configured: true, managedExternally: false, storage: stored.storage };
+  });
   app.post('/api/v1/pause', { schema: { body: EmptyInput } }, async () => db.updateSettings({ paused: true }));
   app.post('/api/v1/resume', { schema: { body: EmptyInput } }, async () => db.updateSettings({ paused: false }));
   app.post('/api/v1/runs', { schema: { body: RunInput } }, async (request) => service.startRun((request.body as { query: string }).query));
@@ -142,8 +160,8 @@ export async function createServer(options: ServerOptions = {}) {
   app.get('/api/v1/schedule', async () => db.getSchedule());
   app.put('/api/v1/schedule', { schema: { body: ScheduleInput } }, async (request) => db.updateSchedule(validateSchedule(request.body as any)));
   app.get('/api/v1/providers', async () => [
-    ['OpenAI', hasSecret('OPENAI_API_KEY')], ['Brave', hasSecret('BRAVE_API_KEY')], ['Hunter', hasSecret('HUNTER_API_KEY')],
-    ['Gmail', hasSecret('GMAIL_ACCESS_TOKEN') || hasSecret('GMAIL_REFRESH_TOKEN')],
+    ['OpenAI', secretStore.load('OPENAI_API_KEY')], ['Brave', secretStore.load('BRAVE_API_KEY')], ['Hunter', secretStore.load('HUNTER_API_KEY')],
+    ['Gmail', secretStore.load('GMAIL_ACCESS_TOKEN') || secretStore.load('GMAIL_REFRESH_TOKEN')],
   ].map(([name, configured]) => ({ name, configured: useFake || Boolean(configured), healthy: true, message: useFake ? 'Fake provider mode' : null })));
   app.get('/api/v1/events', { schema: { querystring: EventsQuery } }, async (request, reply) => {
     reply.raw.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive' });

@@ -1,4 +1,4 @@
-import type { Contact, Draft, Job, Profile, Run, Schedule, Send, Settings } from '@gighunt/contracts';
+import type { Contact, Draft, Job, Profile, ProviderCredentialName, ProviderCredentialStatus, Run, Schedule, Send, Settings } from '@gighunt/contracts';
 
 let csrf = sessionStorage.getItem('gighunt.csrf');
 
@@ -20,6 +20,8 @@ export const api = {
   saveProfile: (value: Omit<Profile, 'id'>) => request<Profile>('/profile', { method: 'PUT', body: JSON.stringify(value) }),
   settings: () => request<Settings>('/settings'),
   updateSettings: (value: Partial<Settings>) => request<Settings>('/settings', { method: 'PATCH', body: JSON.stringify(value) }),
+  providerCredentials: () => request<ProviderCredentialStatus[]>('/provider-credentials'),
+  saveProviderCredential: (name: ProviderCredentialName, value: string) => request<ProviderCredentialStatus>(`/provider-credentials/${name}`, { method: 'PUT', body: JSON.stringify({ value }) }),
   runs: () => request<Run[]>('/runs'), startRun: (query: string) => request<Run>('/runs', { method: 'POST', body: JSON.stringify({ query }) }),
   jobs: () => request<Job[]>('/jobs'), contacts: () => request<Contact[]>('/contacts'), drafts: () => request<Draft[]>('/drafts'), sends: () => request<Send[]>('/outreach'),
   researchContact: (jobId: string) => request(`/jobs/${jobId}/research-contact`, { method: 'POST', body: '{}' }),

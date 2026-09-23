@@ -38,7 +38,7 @@ The default data directory is `~/.config/gighunt`. `GIGHUNT_CONFIG_DIR` changes 
 
 ## Configure real providers
 
-GigHunt uses OpenAI for extraction/drafting, Brave for public job discovery, Hunter for optional recruiter research, and Gmail for sending. Supply your own credentials through the OS secret store. For example, with values already held in shell variables:
+GigHunt uses OpenAI for extraction/drafting, Brave for public job discovery, Hunter for optional recruiter research, and Gmail for sending. Open the dashboard's **Settings → Provider credentials** section to enter these values. The dashboard shows configuration status, never the stored values; changes made there apply to new work without restarting the daemon. You can also supply credentials through the OS secret store from the CLI. For example, with values already held in shell variables:
 
 ```bash
 printf %s "$OPENAI_API_KEY" | gighunt secret set OPENAI_API_KEY
@@ -46,7 +46,7 @@ printf %s "$BRAVE_API_KEY" | gighunt secret set BRAVE_API_KEY
 printf %s "$HUNTER_API_KEY" | gighunt secret set HUNTER_API_KEY
 ```
 
-Secrets are read from stdin, not command arguments. The CLI uses macOS Keychain or Linux Secret Service when available. On macOS/Linux, an owner-only `secrets.json` file is the fallback; protect and back it up accordingly. Windows has no file fallback: provide secrets through a protected service environment. Environment variables override stored secrets. The `.env.example` file is only a reference; GigHunt does not load it automatically. **Restart the daemon after setting or changing provider credentials**, because it creates provider clients at startup.
+Secrets are read from stdin, not command arguments. The CLI uses macOS Keychain or Linux Secret Service when available. On macOS/Linux, an owner-only `secrets.json` file is the fallback; protect and back it up accordingly. Windows has no file fallback: provide secrets through a protected service environment. Environment variables override stored secrets and cannot be changed from the dashboard. The `.env.example` file is only a reference; GigHunt does not load it automatically. **Restart the daemon after changing credentials through the CLI or environment**; dashboard changes reload the provider clients automatically.
 
 For unattended Gmail sending, enable the Gmail API in a Google Cloud project, create a desktop OAuth client, and obtain a refresh token with the `https://www.googleapis.com/auth/gmail.send` scope and offline access using your own OAuth flow. GigHunt does not perform interactive OAuth authorization. Store `GMAIL_CLIENT_ID`, `GMAIL_CLIENT_SECRET`, and `GMAIL_REFRESH_TOKEN` with `gighunt secret set` as above. The daemon refreshes access tokens and stores their expiry; a standalone `GMAIL_ACCESS_TOKEN` expires and is unsuitable for a persistent service. Restart after adding these values. Gmail timeouts or crashes during dispatch become `uncertain` and require a human to check Sent mail and reconcile the record; GigHunt will not retry them automatically.
 
