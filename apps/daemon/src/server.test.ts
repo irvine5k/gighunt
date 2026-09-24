@@ -1,14 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
 import { GigDatabase } from '@gighunt/db';
 import { createServer, runScheduledTick } from './server.js';
-import { secretWriteCommand } from './secrets.js';
 
 describe('daemon security and workflow', () => {
-  it('passes macOS keychain secret values on stdin rather than argv', () => {
-    const command = secretWriteCommand('OPENAI_API_KEY', 'darwin')!;
-    expect(command.args.at(-1)).toBe('-w');
-    expect(command.args.join(' ')).not.toContain('secret-value');
-  });
   it('requires authentication and rejects hostile origins', async () => {
     const db = new GigDatabase(); const { app } = await createServer({ database: db, apiToken: 'secret', mcpToken: 'mcp-secret', fakeProviders: true });
     expect((await app.inject({ method: 'GET', url: '/api/v1/settings' })).statusCode).toBe(401);

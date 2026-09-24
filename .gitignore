@@ -8,4 +8,6 @@ test-results/
 *.db-shm
 *.db-wal
 .env
+.env.local
+.env.*.local
 .DS_Store
